@@ -176,7 +176,7 @@ def masked_cross_entropy(logits, targets, pad_id=PAD_ID):
     mask = ndl.Tensor(mask_np, device=logits.device, dtype=logits.dtype, requires_grad=False)
 
     masked_nll = nll * mask
-    denom = float(mask.numpy().sum()) + 1e-8
+    denom = float(mask.numpy().sum().item()) + 1e-8
     loss = ops.summation(masked_nll) / denom
     return loss
 
@@ -206,11 +206,11 @@ def train_one_epoch(model, loader, opt, device=None):
         with np.errstate(over="ignore"):
             tgt_int = batch_np[:, 1:]
             non_pad = int((tgt_int != PAD_ID).sum())
-        total_loss += float(loss.numpy()) * non_pad
+        total_loss += float(loss.numpy().item()) * non_pad
         total_tokens += non_pad
 
         if (step + 1) % 50 == 0:
-            print(f"  [step {step+1}] loss: {float(loss.numpy()):.4f}")
+            print(f"  [step {step+1}] loss: {float(loss.numpy().item()):.4f}")
 
     avg = total_loss / max(total_tokens, 1)
     print(f"  epoch avg token loss: {avg:.4f}, ppl≈{math.exp(avg):.2f}")

@@ -287,6 +287,40 @@ void Matmul(const AlignedArray& a, const AlignedArray& b, AlignedArray* out, uin
   /// END SOLUTION
 }
 
+void MatmulBatch(const AlignedArray& a, const AlignedArray& b, AlignedArray* out,
+                 uint32_t batch, uint32_t m, uint32_t n, uint32_t p) {
+  /**
+   * Batched matrix multiplication over a batch dimension.
+   * a: compact 3D array of size batch x m x n
+   * b: compact 3D array of size batch x n x p
+   * out: compact 3D array of size batch x m x p
+   */
+  const size_t stride_a = (size_t)m * n;
+  const size_t stride_b = (size_t)n * p;
+  const size_t stride_c = (size_t)m * p;
+
+  for (uint32_t bt = 0; bt < batch; ++bt) {
+    const float* a_ptr = a.ptr + bt * stride_a;
+    const float* b_ptr = b.ptr + bt * stride_b;
+    float* c_ptr = out->ptr + bt * stride_c;
+
+    // zero
+    for (size_t i = 0; i < stride_c; ++i) c_ptr[i] = 0.0f;
+
+    for (uint32_t i = 0; i < m; ++i) {
+      float* out_row = c_ptr + i * p;
+      const float* a_row = a_ptr + i * n;
+      for (uint32_t k = 0; k < n; ++k) {
+        const float aik = a_row[k];
+        const float* b_row = b_ptr + k * p;
+        for (uint32_t j = 0; j < p; ++j) {
+          out_row[j] += aik * b_row[j];
+        }
+      }
+    }
+  }
+}
+
 inline void AlignedDot(const float* __restrict__ a,
                        const float* __restrict__ b,
                        float* __restrict__ out) {
@@ -477,6 +511,7 @@ PYBIND11_MODULE(ndarray_backend_cpu, m) {
 
   m.def("matmul", Matmul);
   m.def("matmul_tiled", MatmulTiled);
+  m.def("matmul_batch", MatmulBatch);
 
   m.def("reduce_max", ReduceMax);
   m.def("reduce_sum", ReduceSum);

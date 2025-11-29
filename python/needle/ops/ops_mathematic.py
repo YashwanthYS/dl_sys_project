@@ -318,6 +318,34 @@ def matmul(a, b):
     return MatMul()(a, b)
 
 
+class BatchedMatMul(TensorOp):
+    """Batched matrix multiplication: (N,M,K) x (N,K,P) -> (N,M,P)."""
+
+    def compute(self, a, b):
+        # numpy path
+        if BACKEND == "np":
+            return array_api.matmul(a, b)
+        # needle NDArray path: call device bmm
+        if hasattr(a, "bmm"):
+            return a.bmm(b)
+        # Fallback to numpy
+        a_np = a.numpy() if hasattr(a, "numpy") else a
+        b_np = b.numpy() if hasattr(b, "numpy") else b
+        out_np = numpy.matmul(a_np, b_np)
+        return array_api.array(out_np, device=None)
+
+    def gradient(self, out_grad, node):
+        A, B = node.inputs
+        # dA = dY @ B^T; dB = A^T @ dY
+        dA = batched_matmul(out_grad, transpose(B, axes=(0, 2, 1)))
+        dB = batched_matmul(transpose(A, axes=(0, 2, 1)), out_grad)
+        return dA, dB
+
+
+def batched_matmul(a, b):
+    return BatchedMatMul()(a, b)
+
+
 class Negate(TensorOp):
     def compute(self, a):
         ### BEGIN YOUR SOLUTION

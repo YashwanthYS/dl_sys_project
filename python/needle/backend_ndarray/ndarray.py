@@ -633,6 +633,30 @@ class NDArray:
             )
             return out
 
+    def bmm(self, other: "NDArray") -> "NDArray":
+        """Batched matrix multiplication for 3D arrays.
+        (batch, m, n) @ (batch, n, p) -> (batch, m, p)
+        """
+        assert self.ndim == 3 and other.ndim == 3
+        assert self.shape[0] == other.shape[0]
+        assert self.shape[2] == other.shape[1]
+
+        b, m, n = self.shape
+        _, n2, p = other.shape
+        assert n == n2
+
+        out = NDArray.make((b, m, p), device=self.device)
+        self.device.matmul_batch(
+            self.compact()._handle,
+            other.compact()._handle,
+            out._handle,
+            b,
+            m,
+            n,
+            p,
+        )
+        return out
+
     ### Reductions, i.e., sum/max over all element or over given axis
     def reduce_view_out(self, axis: int | tuple[int, ...] | list[int] | None, keepdims: bool = False) -> tuple["NDArray", "NDArray"]:
         """ Return a view to the array set up for reduction functions and output array. """

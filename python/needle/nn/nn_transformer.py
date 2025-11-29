@@ -57,15 +57,11 @@ class MultiHeadAttention(Module):
         _, _, D2, Tk = b_transpose.shape
         assert D == D2
 
-        # Compute per-(B,H) matmul slices to keep memory bounded
+        # Use batched matmul over combined (B*H) dimension
         A3 = a.reshape((B * H, Tq, D))
         B3 = b_transpose.reshape((B * H, D, Tk))
-
-        As = [t for t in ops.split(A3, axis=0)]
-        Bs = [t for t in ops.split(B3, axis=0)]
-        outs = [ops.matmul(x, y) for x, y in zip(As, Bs)]
-        C = ops.stack(outs, axis=0)
-        return C.reshape((B, H, Tq, Tk))
+        C3 = ops.batched_matmul(A3, B3)
+        return C3.reshape((B, H, Tq, Tk))
 
     def softmax(self, logit):
         """
