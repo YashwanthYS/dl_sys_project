@@ -251,6 +251,46 @@ def evaluate_speculative(draft_model, verifier_model, num_examples=200, max_seq_
     }
 
 
+def greedy_generate_verifier(model, prefix_np, total_tokens, device):
+    gen = prefix_np.astype(np.int64)
+    for _ in range(total_tokens):
+        nxt = greedy_next(model, gen, device)
+        gen = np.concatenate([gen, np.array([nxt], dtype=np.int64)], axis=0)
+    return gen
+
+
+def evaluate_baseline(verifier_model, num_examples=200, max_seq_len=32, device=None):
+    ds = CopyDataset(num_examples=num_examples, max_seq_len=max_seq_len, seed=1001)
+    latencies = []
+    total_gen_tokens = 0
+    total_time = 0.0
+    correct_tokens = 0
+    total_tokens = 0
+    for i in range(len(ds)):
+        seq = ds[i]
+        L = seq.shape[0]
+        n = (L - 2) // 2
+        prefix = seq[: n + 2]
+        true_tail = seq[n + 2 :]
+        t0 = time.time()
+        gen = greedy_generate_verifier(verifier_model, prefix, n, device)
+        dt = time.time() - t0
+        latencies.append(dt)
+        total_gen_tokens += n
+        total_time += dt
+        gen_tail = gen[-n:]
+        correct_tokens += int((gen_tail == true_tail).sum())
+        total_tokens += n
+    tokens_per_sec = total_gen_tokens / max(total_time, 1e-8)
+    p50 = statistics.median(latencies)
+    acc = correct_tokens / max(total_tokens, 1)
+    return {
+        "tokens_per_sec": tokens_per_sec,
+        "latency_p50": p50,
+        "token_accuracy": acc,
+    }
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Speculative decoding on copy task")
@@ -261,12 +301,13 @@ def main():
     parser.add_argument("--epochs-draft", type=int, default=5)
     parser.add_argument("--epochs-verifier", type=int, default=10)
     parser.add_argument("--lr", type=float, default=3e-4)
-    parser.add_argument("--d-draft", type=int, default=64)
+    # make draft bigger and verifier even bigger by default for higher acceptance
+    parser.add_argument("--d-draft", type=int, default=128)
     parser.add_argument("--heads-draft", type=int, default=4)
-    parser.add_argument("--layers-draft", type=int, default=1)
-    parser.add_argument("--d-verifier", type=int, default=128)
+    parser.add_argument("--layers-draft", type=int, default=2)
+    parser.add_argument("--d-verifier", type=int, default=256)
     parser.add_argument("--heads-verifier", type=int, default=4)
-    parser.add_argument("--layers-verifier", type=int, default=2)
+    parser.add_argument("--layers-verifier", type=int, default=3)
     parser.add_argument("--dropout", type=float, default=0.0)
     parser.add_argument("--draft-k", type=int, default=8)
     parser.add_argument("--eval-examples", type=int, default=200)
@@ -307,15 +348,23 @@ def main():
         train_epoch(verifier, loader, opt_v, device)
         print(f"Verifier epoch {e+1}/{args.epochs_verifier}  time={time.time()-t0:.1f}s")
 
-    # Evaluate speculative decoding
+    # Baseline (verifier-only greedy) and speculative decoding
+    print("\nEvaluating baseline (verifier-only)...")
+    base = evaluate_baseline(verifier, num_examples=args.eval_examples, max_seq_len=args.max_len, device=device)
+    print(f"baseline tokens/sec: {base['tokens_per_sec']:.2f}")
+    print(f"baseline latency p50: {base['latency_p50']:.4f} s")
+    print(f"baseline token accuracy: {base['token_accuracy']:.3f}")
+
     print("\nEvaluating speculative decoding...")
-    metrics = evaluate_speculative(draft, verifier, num_examples=args.eval_examples, max_seq_len=args.max_len, k=args.draft_k, device=device)
-    print(f"tokens/sec: {metrics['tokens_per_sec']:.2f}")
-    print(f"acceptance rate: {metrics['acceptance_rate']:.2f}")
-    print(f"latency p50: {metrics['latency_p50']:.4f} s")
-    print(f"token accuracy: {metrics['token_accuracy']:.3f}")
+    spec = evaluate_speculative(draft, verifier, num_examples=args.eval_examples, max_seq_len=args.max_len, k=args.draft_k, device=device)
+    print(f"spec tokens/sec: {spec['tokens_per_sec']:.2f}")
+    print(f"acceptance rate: {spec['acceptance_rate']:.2f}")
+    print(f"spec latency p50: {spec['latency_p50']:.4f} s")
+    print(f"spec token accuracy: {spec['token_accuracy']:.3f}")
+
+    speedup = spec['tokens_per_sec'] / max(base['tokens_per_sec'], 1e-8)
+    print(f"\nSpeedup (spec vs baseline): {speedup:.2f}x")
 
 
 if __name__ == "__main__":
     main()
-
