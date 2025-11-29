@@ -57,12 +57,15 @@ class MultiHeadAttention(Module):
         _, _, D2, Tk = b_transpose.shape
         assert D == D2
 
-        # Compute batched matmul via broadcasted multiply + reduce-sum over D
-        # Shapes to (B, H, Tq, D, 1) * (B, H, 1, D, Tk) -> (B, H, Tq, D, Tk)
+        # Compute batched matmul via explicit broadcast + multiply + reduce-sum over D
+        # Reshape to 5D and broadcast to common shape as ND backend doesn't auto-broadcast
         a5 = a.reshape((B, H, Tq, D, 1))
         b5 = b_transpose.reshape((B, H, 1, D, Tk))
-        prod = a5 * b5
-        c5 = ops.summation(prod, axes=(3,))  # sum over D
+        target = (B, H, Tq, D, Tk)
+        a5b = ops.broadcast_to(a5, target)
+        b5b = ops.broadcast_to(b5, target)
+        prod = a5b * b5b
+        c5 = ops.summation(prod, axes=(3,))  # sum over D -> (B, H, Tq, Tk)
         return c5.reshape((B, H, Tq, Tk))
 
     def softmax(self, logit):
