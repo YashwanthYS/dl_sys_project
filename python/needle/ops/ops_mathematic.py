@@ -337,8 +337,9 @@ class BatchedMatMul(TensorOp):
     def gradient(self, out_grad, node):
         A, B = node.inputs
         # dA = dY @ B^T; dB = A^T @ dY
-        dA = batched_matmul(out_grad, transpose(B, axes=(0, 2, 1)))
-        dB = batched_matmul(transpose(A, axes=(0, 2, 1)), out_grad)
+        # swap last two axes only (keep batch axis fixed)
+        dA = batched_matmul(out_grad, transpose(B, axes=(1, 2)))
+        dB = batched_matmul(transpose(A, axes=(1, 2)), out_grad)
         return dA, dB
 
 
