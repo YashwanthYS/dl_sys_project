@@ -138,16 +138,36 @@ def masked_cross_entropy(logits, targets):
     return ops.summation(masked_nll) / denom
 
 
-def train_epoch(model, loader, opt, device):
+def train_epoch(model, loader, opt, device, print_every=50, micro_batch_size=0):
     model.train()
     for step, batch_np in enumerate(loader):
-        inp = ndl.Tensor(batch_np[:, :-1].astype(np.float32), device=device)
-        tgt = ndl.Tensor(batch_np[:, 1:].astype(np.float32), device=device)
-        logits = model(inp)
-        loss = masked_cross_entropy(logits, tgt)
-        opt.reset_grad()
-        loss.backward()
-        opt.step()
+        B = batch_np.shape[0]
+        if micro_batch_size and micro_batch_size < B:
+            # process in micro-batches to reduce peak memory
+            for s in range(0, B, micro_batch_size):
+                mb = batch_np[s : s + micro_batch_size]
+                inp = ndl.Tensor(mb[:, :-1].astype(np.float32), device=device)
+                tgt = ndl.Tensor(mb[:, 1:].astype(np.float32), device=device)
+                logits = model(inp)
+                loss = masked_cross_entropy(logits, tgt)
+                opt.reset_grad()
+                loss.backward()
+                opt.step()
+        else:
+            inp = ndl.Tensor(batch_np[:, :-1].astype(np.float32), device=device)
+            tgt = ndl.Tensor(batch_np[:, 1:].astype(np.float32), device=device)
+            logits = model(inp)
+            loss = masked_cross_entropy(logits, tgt)
+            opt.reset_grad()
+            loss.backward()
+            opt.step()
+
+        if (step + 1) % print_every == 0:
+            try:
+                val = float(loss.numpy().item())
+            except Exception:
+                val = float(loss.numpy())
+            print(f"  [step {step+1}] loss: {val:.4f}")
 
 
 def greedy_next(model, prefix_ids_np, device):
@@ -298,6 +318,8 @@ def main():
     parser.add_argument("--max-len", type=int, default=32)
     parser.add_argument("--train-examples", type=int, default=20000)
     parser.add_argument("--batch-size", type=int, default=128)
+    parser.add_argument("--micro-batch-size", type=int, default=0, help="Optional micro-batch size to reduce peak memory (0=disabled)")
+    parser.add_argument("--print-every", type=int, default=50)
     parser.add_argument("--epochs-draft", type=int, default=5)
     parser.add_argument("--epochs-verifier", type=int, default=10)
     parser.add_argument("--lr", type=float, default=3e-4)
@@ -338,14 +360,14 @@ def main():
     opt_d = ndl.optim.Adam(draft.parameters(), lr=args.lr)
     for e in range(args.epochs_draft):
         t0 = time.time()
-        train_epoch(draft, loader, opt_d, device)
+        train_epoch(draft, loader, opt_d, device, print_every=args.print_every, micro_batch_size=args.micro_batch_size)
         print(f"Draft epoch {e+1}/{args.epochs_draft}  time={time.time()-t0:.1f}s")
 
     # Train verifier
     opt_v = ndl.optim.Adam(verifier.parameters(), lr=args.lr)
     for e in range(args.epochs_verifier):
         t0 = time.time()
-        train_epoch(verifier, loader, opt_v, device)
+        train_epoch(verifier, loader, opt_v, device, print_every=args.print_every, micro_batch_size=args.micro_batch_size)
         print(f"Verifier epoch {e+1}/{args.epochs_verifier}  time={time.time()-t0:.1f}s")
 
     # Baseline (verifier-only greedy) and speculative decoding
