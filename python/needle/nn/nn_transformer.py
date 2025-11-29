@@ -57,14 +57,13 @@ class MultiHeadAttention(Module):
         _, _, D2, Tk = b_transpose.shape
         assert D == D2
 
-        A3 = a.reshape((B * H, Tq, D))
-        B3 = b_transpose.reshape((B * H, D, Tk))
-
-        As = [t for t in ops.split(A3, axis=0)]
-        Bs = [t for t in ops.split(B3, axis=0)]
-        outs = [ops.matmul(x, y) for x, y in zip(As, Bs)]
-        C = ops.stack(outs, axis=0)
-        return C.reshape((B, H, Tq, Tk))
+        # Compute batched matmul via broadcasted multiply + reduce-sum over D
+        # Shapes to (B, H, Tq, D, 1) * (B, H, 1, D, Tk) -> (B, H, Tq, D, Tk)
+        a5 = a.reshape((B, H, Tq, D, 1))
+        b5 = b_transpose.reshape((B, H, 1, D, Tk))
+        prod = a5 * b5
+        c5 = ops.summation(prod, axes=(3,))  # sum over D
+        return c5.reshape((B, H, Tq, Tk))
 
     def softmax(self, logit):
         """
