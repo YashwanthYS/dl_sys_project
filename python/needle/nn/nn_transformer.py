@@ -57,16 +57,15 @@ class MultiHeadAttention(Module):
         _, _, D2, Tk = b_transpose.shape
         assert D == D2
 
-        # Compute batched matmul via explicit broadcast + multiply + reduce-sum over D
-        # Reshape to 5D and broadcast to common shape as ND backend doesn't auto-broadcast
-        a5 = a.reshape((B, H, Tq, D, 1))
-        b5 = b_transpose.reshape((B, H, 1, D, Tk))
-        target = (B, H, Tq, D, Tk)
-        a5b = ops.broadcast_to(a5, target)
-        b5b = ops.broadcast_to(b5, target)
-        prod = a5b * b5b
-        c5 = ops.summation(prod, axes=(3,))  # sum over D -> (B, H, Tq, Tk)
-        return c5.reshape((B, H, Tq, Tk))
+        # Compute per-(B,H) matmul slices to keep memory bounded
+        A3 = a.reshape((B * H, Tq, D))
+        B3 = b_transpose.reshape((B * H, D, Tk))
+
+        As = [t for t in ops.split(A3, axis=0)]
+        Bs = [t for t in ops.split(B3, axis=0)]
+        outs = [ops.matmul(x, y) for x, y in zip(As, Bs)]
+        C = ops.stack(outs, axis=0)
+        return C.reshape((B, H, Tq, Tk))
 
     def softmax(self, logit):
         """
@@ -251,7 +250,6 @@ class AttentionLayer(Module):
 
         # Multi-head attention activation
         attn_out, probs = self.attn(qp, kp, vp)  # (B, H, Tq, D)
-        self.probs = probs
 
         # Merge heads back: (B, Tq, H*D)
         attn_out = ops.transpose(attn_out, axes=(1, 2))  # (B, Tq, H, D)
