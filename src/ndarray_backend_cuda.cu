@@ -479,6 +479,29 @@ void Matmul(const CudaArray& a, const CudaArray& b, CudaArray* out, uint32_t M, 
   /// END SOLUTION
 }
 
+void MatmulBatch(const CudaArray& a, const CudaArray& b, CudaArray* out,
+                 uint32_t B, uint32_t M, uint32_t N, uint32_t P) {
+  /**
+   * Batched matrix multiply:
+   * a: B x M x N (compact)
+   * b: B x N x P (compact)
+   * out: B x M x P (compact)
+   */
+  const size_t stride_a = static_cast<size_t>(M) * N;
+  const size_t stride_b = static_cast<size_t>(N) * P;
+  const size_t stride_c = static_cast<size_t>(M) * P;
+
+  dim3 block(16, 16, 1);
+  dim3 grid((P + block.x - 1) / block.x, (M + block.y - 1) / block.y, 1);
+
+  for (uint32_t bt = 0; bt < B; ++bt) {
+    const scalar_t* a_ptr = a.ptr + bt * stride_a;
+    const scalar_t* b_ptr = b.ptr + bt * stride_b;
+    scalar_t* c_ptr = out->ptr + bt * stride_c;
+    MatmulKernel<<<grid, block>>>(a_ptr, b_ptr, c_ptr, M, N, P);
+  }
+}
+
 ////////////////////////////////////////////////////////////////////////////////
 // Max and sum reductions
 ////////////////////////////////////////////////////////////////////////////////
@@ -584,6 +607,7 @@ PYBIND11_MODULE(ndarray_backend_cuda, m) {
   m.def("ewise_tanh", EwiseTanh);
 
   m.def("matmul", Matmul);
+  m.def("matmul_batch", MatmulBatch);
 
   m.def("reduce_max", ReduceMax);
   m.def("reduce_sum", ReduceSum);

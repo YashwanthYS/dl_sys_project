@@ -646,15 +646,28 @@ class NDArray:
         assert n == n2
 
         out = NDArray.make((b, m, p), device=self.device)
-        self.device.matmul_batch(
-            self.compact()._handle,
-            other.compact()._handle,
-            out._handle,
-            b,
-            m,
-            n,
-            p,
-        )
+
+        # Fast path if backend provides a batched kernel
+        if hasattr(self.device, "matmul_batch"):
+            self.device.matmul_batch(
+                self.compact()._handle,
+                other.compact()._handle,
+                out._handle,
+                b,
+                m,
+                n,
+                p,
+            )
+            return out
+
+        # Fallback: per-batch calls to 2D matmul on device (keeps data on device)
+        a_c = self.compact()
+        b_c = other.compact()
+        for bt in range(b):
+            a_bt = NDArray.make((m, n), device=self.device, handle=a_c._handle, offset=bt * m * n)
+            b_bt = NDArray.make((n, p), device=self.device, handle=b_c._handle, offset=bt * n * p)
+            o_bt = NDArray.make((m, p), device=self.device, handle=out._handle, offset=bt * m * p)
+            self.device.matmul(a_bt._handle, b_bt._handle, o_bt._handle, m, n, p)
         return out
 
     ### Reductions, i.e., sum/max over all element or over given axis

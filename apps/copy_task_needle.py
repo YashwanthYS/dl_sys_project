@@ -279,10 +279,19 @@ def main():
     parser.add_argument("--n-layer", type=int, default=2)
     parser.add_argument("--dropout", type=float, default=0.1)
     parser.add_argument("--eval-examples", type=int, default=200)
+    parser.add_argument("--device", type=str, default="auto", choices=["auto","cpu","cuda"], help="Select device: auto/cpu/cuda")
     args = parser.parse_args()
 
     print("Using Needle backend:", ndl.backend_selection.BACKEND)
-    device = ndl.default_device()
+    # Device selection
+    if args.device == "cpu":
+        device = ndl.cpu()
+    elif args.device == "cuda":
+        device = ndl.cuda() if ndl.cuda().enabled() else ndl.cpu()
+        if device.__repr__() == "cpu()":
+            print("CUDA requested but not available; falling back to CPU.")
+    else:  # auto
+        device = ndl.cuda() if ndl.cuda().enabled() else ndl.cpu()
     print("Device:", device)
 
     # Data
