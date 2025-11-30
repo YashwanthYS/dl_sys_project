@@ -328,12 +328,11 @@ def count_params(model):
     return sum(np.prod(p.shape) for p in model.parameters())
 
 
-def plot_acceptance_vs_ratio(ratios, accepts, speedups, p_ds, p_vs, out_path):
+def plot_acceptance_vs_ratio(ratios, accepts, speedups, out_path):
     plt.figure(figsize=(6,4))
     plt.scatter(ratios, accepts, c=speedups, cmap='viridis', s=60)
-    for x, y, sp, pd, pv in zip(ratios, accepts, speedups, p_ds, p_vs):
-        label = f"{pd/1e3:.0f}K/{pv/1e3:.0f}K\n{sp:.2f}x"
-        plt.annotate(label, (x, y), textcoords="offset points", xytext=(6,6), fontsize=8)
+    for x, y, sp in zip(ratios, accepts, speedups):
+        plt.annotate(f"{sp:.2f}x", (x, y), textcoords="offset points", xytext=(6,6), fontsize=8)
     plt.xlabel("Param ratio (draft/verifier)")
     plt.ylabel("Acceptance rate")
     plt.title("Acceptance vs. model size ratio (K fixed)")
@@ -474,7 +473,7 @@ def main():
             print(f"[ratio] params_draft={p_d/1e3:.1f}K, params_verifier={p_v/1e3:.1f}K, ratio={ratio:.3f}, acc_rate={spec_r['acceptance_rate']:.2f}, speedup={speed:.2f}")
 
         ratio_plot = os.path.join(args.output_dir, f"acceptance_vs_ratio_k{args.k_ratio}.png")
-        plot_acceptance_vs_ratio(ratios, accepts, speeds, p_ds, p_vs, ratio_plot)
+        plot_acceptance_vs_ratio(ratios, accepts, speeds, ratio_plot)
         print("Saved:", ratio_plot)
 
 
