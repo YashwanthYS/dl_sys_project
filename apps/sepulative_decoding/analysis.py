@@ -324,6 +324,26 @@ def plot_timing_breakdown(ks, drafts, verifies, overheads, out_path):
     plt.close()
 
 
+def count_params(model):
+    return sum(np.prod(p.shape) for p in model.parameters())
+
+
+def plot_acceptance_vs_ratio(ratios, accepts, speedups, out_path):
+    plt.figure(figsize=(6,4))
+    plt.scatter(ratios, accepts, c=speedups, cmap='viridis', s=60)
+    for x, y, sp in zip(ratios, accepts, speedups):
+        plt.annotate(f"{sp:.2f}x", (x, y), textcoords="offset points", xytext=(5,5), fontsize=8)
+    plt.xlabel("Param ratio (draft/verifier)")
+    plt.ylabel("Acceptance rate")
+    plt.title("Acceptance vs. model size ratio (K fixed)")
+    cbar = plt.colorbar()
+    cbar.set_label('Speedup (spec/baseline)')
+    plt.grid(True, alpha=0.3)
+    plt.tight_layout()
+    plt.savefig(out_path)
+    plt.close()
+
+
 def main():
     import argparse
     parser = argparse.ArgumentParser(description="Speculative decoding analysis")
@@ -345,6 +365,12 @@ def main():
     parser.add_argument("--k-values", type=str, default="2,4,6,8,12,16")
     parser.add_argument("--eval-examples", type=int, default=200)
     parser.add_argument("--output-dir", type=str, default="analysis_out")
+    # Ratio analysis settings
+    parser.add_argument("--do-ratio", action='store_true', help="Run ratio (size) vs acceptance analysis at fixed K")
+    parser.add_argument("--k-ratio", type=int, default=8)
+    parser.add_argument("--ratio-draft-dims", type=str, default="64,96,128")
+    parser.add_argument("--ratio-verifier-dims", type=str, default="128,192,256")
+    parser.add_argument("--ratio-epochs", type=int, default=2)
     args = parser.parse_args()
 
     print("Using Needle backend:", ndl.backend_selection.BACKEND)
@@ -411,6 +437,41 @@ def main():
     tb_plot = os.path.join(args.output_dir, "timing_breakdown.png")
     plot_timing_breakdown(ks, t_drafts, t_verifies, t_overheads, tb_plot)
     print("Saved:", tb_plot)
+
+    # Ratio analysis: acceptance vs param ratio (draft/verifier) at fixed K
+    if args.do_ratio:
+        dd = [int(x) for x in args.ratio_draft_dims.split(',')]
+        dv = [int(x) for x in args.ratio_verifier_dims.split(',')]
+        assert len(dd) == len(dv), "ratio-draft-dims and ratio-verifier-dims must have same length"
+
+        ratios, accepts, speeds = [], [], []
+        for d_dim, v_dim in zip(dd, dv):
+            print(f"\n[ratio] training draft d={d_dim}, verifier d={v_dim}")
+            d_model = GPTTinyNeedle(VOCAB_SIZE, d_model=d_dim, n_head=args.heads_draft, n_layer=args.layers_draft, max_len=args.max_len, dropout=args.dropout, device=device)
+            v_model = GPTTinyNeedle(VOCAB_SIZE, d_model=v_dim, n_head=args.heads_verifier, n_layer=args.layers_verifier, max_len=args.max_len, dropout=args.dropout, device=device)
+
+            # quick train
+            optd = ndl.optim.Adam(d_model.parameters(), lr=args.lr)
+            _ = train_model(d_model, loader, optd, device, epochs=args.ratio_epochs, micro_batch_size=args.micro_batch_size)
+            optv = ndl.optim.Adam(v_model.parameters(), lr=args.lr)
+            _ = train_model(v_model, loader, optv, device, epochs=args.ratio_epochs, micro_batch_size=args.micro_batch_size)
+
+            base_r = evaluate_baseline(v_model, num_examples=args.eval_examples, max_seq_len=args.max_len, device=device)
+            spec_r = evaluate_speculative(d_model, v_model, num_examples=args.eval_examples, max_seq_len=args.max_len, k=args.k_ratio, device=device)
+
+            p_d = count_params(d_model)
+            p_v = count_params(v_model)
+            ratio = p_d / max(p_v, 1)
+            speed = spec_r['tokens_per_sec'] / max(base_r['tokens_per_sec'], 1e-8)
+
+            ratios.append(ratio)
+            accepts.append(spec_r['acceptance_rate'])
+            speeds.append(speed)
+            print(f"[ratio] params_draft={p_d/1e3:.1f}K, params_verifier={p_v/1e3:.1f}K, ratio={ratio:.3f}, acc_rate={spec_r['acceptance_rate']:.2f}, speedup={speed:.2f}")
+
+        ratio_plot = os.path.join(args.output_dir, f"acceptance_vs_ratio_k{args.k_ratio}.png")
+        plot_acceptance_vs_ratio(ratios, accepts, speeds, ratio_plot)
+        print("Saved:", ratio_plot)
 
 
 if __name__ == "__main__":
