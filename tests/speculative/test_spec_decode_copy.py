@@ -98,3 +98,53 @@ def test_speculative_generate_partial_accept():
     assert acc == 1
     assert drafted_total >= 2
 
+
+def test_verify_chunk_out_of_bounds_prefix_empty():
+    class Ver:
+        def __call__(self, x):
+            T = x.numpy().shape[1]
+            V = 8
+            logits = np.zeros((1, T, V), dtype=np.float32)
+            logits[0, :, 1] = 1.0
+            return ndl.Tensor(logits, device=x.device, dtype='float32', requires_grad=False)
+
+    prefix = np.array([], dtype=np.int64)
+    drafted = np.array([3, 3], dtype=np.int64)
+    acc, vnext = sdc.verify_chunk(Ver(), prefix, drafted, ndl.cpu())
+    # pos starts at -1 and breaks immediately; accept stays 0
+    assert acc == 0
+
+
+def test_train_epoch_fallback_print_branch(monkeypatch):
+    # Force the except branch in printing by returning a loss with numpy() that lacks .item
+    class DummyLoss:
+        def backward(self):
+            pass
+        class _NoItem:
+            def __float__(self):
+                return 0.0
+        def numpy(self):
+            return self._NoItem()
+
+    def fake_mce(logits, tgt):
+        return DummyLoss()
+
+    monkeypatch.setattr(sdc, 'masked_cross_entropy', fake_mce)
+
+    class M:
+        def train(self):
+            pass
+        def __call__(self, x):
+            B, T = x.shape
+            V = 6
+            logits = np.zeros((B, T, V), dtype=np.float32)
+            return ndl.Tensor(logits, device=x.device, dtype='float32', requires_grad=False)
+
+    class NoOpt:
+        def reset_grad(self):
+            pass
+        def step(self):
+            pass
+
+    batch = np.stack([np.array([1,2,3], dtype=np.float32) for _ in range(2)], axis=0)
+    sdc.train_epoch(M(), [batch], NoOpt(), ndl.cpu(), print_every=1)
