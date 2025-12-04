@@ -31,9 +31,11 @@ class DummyVerifierMismatch(DummyVerifier):
         self.mismatch_pos = mismatch_pos
 
     def forward(self, x):
-        # Force an always-wrong prediction (e.g., always token id 0)
-        out = super().forward(x).numpy()
-        out[:] = 0.0
+        # Ignore input; always predict token 0 at every position
+        x_np = x.numpy()
+        T = x_np.shape[1]
+        V = 16
+        out = np.zeros((1, T, V), dtype=np.float32)
         out[0, :, 0] = 1.0
         return ndl.Tensor(out, device=x.device, dtype='float32', requires_grad=False)
 
