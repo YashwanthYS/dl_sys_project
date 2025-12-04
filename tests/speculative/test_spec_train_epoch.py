@@ -19,6 +19,9 @@ class TinyModel:
     def __init__(self, vocab_size):
         self.vocab_size = vocab_size
 
+    def train(self):
+        pass
+
     def __call__(self, x):
         # x: Tensor (B,T)
         B, T = x.shape
@@ -44,4 +47,3 @@ def test_train_epoch_single_batch():
     loader = [batch]
     model = TinyModel(vocab_size=8)
     train_epoch(model, loader, NoOpOpt(), device, print_every=1, micro_batch_size=0)
-

@@ -45,6 +45,8 @@ def test_plot_helpers_and_timing():
 
 def test_train_model_runs_one_epoch():
     class Tiny:
+        def train(self):
+            pass
         def __call__(self, x):
             B, T = x.shape
             V = 8
