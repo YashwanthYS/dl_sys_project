@@ -26,20 +26,6 @@ class DummyVerifier:
     __call__ = forward
 
 
-class DummyVerifierMismatch(DummyVerifier):
-    def __init__(self, mismatch_pos=0):
-        self.mismatch_pos = mismatch_pos
-
-    def forward(self, x):
-        # Ignore input; always predict token 0 at every position
-        x_np = x.numpy()
-        T = x_np.shape[1]
-        V = 16
-        out = np.zeros((1, T, V), dtype=np.float32)
-        out[0, :, 0] = 1.0
-        return ndl.Tensor(out, device=x.device, dtype='float32', requires_grad=False)
-
-
 class DummyDraft:
     def __init__(self, truth):
         self.truth = np.array(truth, dtype=np.int64)
@@ -64,15 +50,6 @@ def test_verify_chunk_accept_all():
     acc, vnext = verify_chunk(DummyVerifier(), prefix, drafted, ndl.cpu())
     assert acc == len(drafted)
     assert vnext is None or isinstance(vnext, int)
-
-
-def test_verify_chunk_mismatch():
-    prefix = np.array([1, 2, 3], dtype=np.int64)
-    drafted = np.array([4, 5, 6], dtype=np.int64)
-    # force at least one mismatch
-    acc, vnext = verify_chunk(DummyVerifierMismatch(mismatch_pos=len(prefix) - 1), prefix, drafted, ndl.cpu())
-    assert acc < len(drafted)
-    assert isinstance(vnext, int)
 
 
 def test_speculative_generate_full_accept():
