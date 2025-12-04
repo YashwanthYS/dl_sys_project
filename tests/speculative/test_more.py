@@ -47,8 +47,13 @@ def test_speculative_generate_progress():
             logits[0, -1, 2] = 1.0
             return ndl.Tensor(logits, device=x.device, dtype='float32', requires_grad=False)
 
-    class Ver(Draft):
-        pass
+    class Ver:
+        def __call__(self, x):
+            T = x.numpy().shape[1]
+            V = 8
+            logits = np.zeros((1, T, V), dtype=np.float32)
+            logits[0, :, 2] = 1.0  # always predict token 2 at every position
+            return ndl.Tensor(logits, device=x.device, dtype='float32', requires_grad=False)
 
     prefix = np.array([1, 2], dtype=np.int64)
     gen, acc, drafted_total = speculative_generate(Draft(), Ver(), prefix, total_tokens=5, k=2, device=ndl.cpu())
@@ -85,4 +90,3 @@ def test_batched_matmul_grad_shapes():
     loss.backward()
     assert a.grad.shape == (B, M, K)
     assert b.grad.shape == (B, K, N)
-
